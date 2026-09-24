@@ -1,0 +1,165 @@
+# /home/test 功能总览与复现指南
+
+> 适用主机：Lite3 感知导航主机（103，`ysc@<HOST_103>`）
+> 目标：让任意一台同型号 lite3 主机按本文档把下列功能完整复现
+> 最后更新：2026-09-24 · 维护者：djw / ysc
+
+⚠️ `/home/test` 是**普通目录名**，不是账号家目录（家目录是 `/home/ysc`）。SSH 用 `ysc@`，路径用 `/home/test/...`。
+
+---
+
+## 一、环境基线（复现前必须对齐）
+
+| 项 | 实测值 |
+|---|---|
+| 硬件 | Jetson Xavier NX（BOARD `t186ref`），6 核 |
+| 内存 | 6 GiB（建议配 3 GiB swap） |
+| 系统 | Ubuntu 20.04.6 LTS |
+| 内核 / JetPack | `5.10.120-tegra` / R35.4.1 |
+| ROS | `/opt/ros/noetic`（ROS1，347 包）+ `/opt/ros/foxy`（ROS2） |
+| 默认 ROS | `~/.bashrc` 默认 source **foxy**，跑 ROS1 必须先做环境隔离 |
+| Python | 3.8.10（monitor 使用自带 `.venv`） |
+| 关键库 | Eigen 3.3.7 / PCL 1.10 / OpenCV 4.2 / Armadillo 9.8 / GStreamer 硬编解码 |
+| 已装 ros1_bridge | `ros-foxy-ros1-bridge 0.9.7-1focal`（apt，arm64） |
+| 上游相机 | `rtsp://<HOST_120>:8554/test`（120 主机 MediaMTX） |
+| RTMP 服务器 | `rtmp://<SRS_HOST>:1936/live/`（SRS） |
+
+## 占位符对照表（公开仓库，部署前需替换）
+
+本仓库为**公开**仓库，涉及内网的地址已统一替换为占位符。实机部署前按下表替换：
+
+| 占位符 | 含义 |
+|---|---|
+| `<HOST_103>` | 感知导航主机 IP |
+| `<HOST_120>` | 运动控制主机 IP（也是 103 的默认网关） |
+| `<LAN_NET>` | 主机间有线网段（如 `192.168.1.0/24`） |
+| `<AP_NET>` | 120 热点网段（如 `192.168.2.0/24`） |
+| `<SRS_HOST>` | RTMP / 流媒体服务器地址 |
+| `<PROXY_HOST>` | 出网代理地址（默认端口 7897） |
+| `<SSH_ALIAS_103>` / `<SSH_ALIAS_120>` | 本机 `~/.ssh/config` 里配置的主机别名 |
+
+路径（`/home/test/...`）、端口（8000 / 9090 / 43897 等）与账号名均为真实值，可直接使用。
+
+## 二、目录结构与各文件作用
+
+| 路径 | 作用 | 纳入版本管理 |
+|---|---|---|
+| `readme` | 本文件：全局总结与复现入口 | ✅ |
+| `note/` | 各部分独立部署文档（索引见第七节） | ✅ |
+| `.gitignore` | 版本管理过滤规则 | ✅ |
+| `DRYRUN-变更预演清单.md` | 变更前的只读预演与回滚方案 | ✅ |
+| `yolo8/` | YOLOv8 检测 + RTMP/ROS2 双通路视频发布 | 部分（排除 `model/`、`logs/`） |
+| `yolo8/deploy/` | 启停脚本、systemd 单元、`yolo-publish.env`（唯一配置） | ✅ |
+| `yolo8/src/` | 推理与发布源码（含第三方 `ultralytics/`，AGPL，不入库） | 部分 |
+| `yolo8/model/` | 权重与 TensorRT 引擎（`yolov8n_arm.engine`） | ❌ 需本地导出 |
+| `yolo8/note/` | YOLO 部署笔记与踩坑记录 | ✅ |
+| `lite3_robot_monitor/` | 机器狗监控面板**源码副本**（backend/frontend/tools/deploy） | ✅ |
+| `monitor/` | 监控面板**线上运行目录**（含 `.venv`），当前服务实际指向此处 | ❌（含 `.venv`） |
+| `scan_planner/` | SCAN-Planner 规划器（ROS1，catkin 工作区） | 部分（排除 `build/`、`devel/`、`logs/`） |
+| `scan_planner/note/` | 6 篇评估/部署/避坑文档 | ✅ |
+| `scan_planner/scripts/` | 环境隔离、编译、仿真、真机脚本 | ✅ |
+| `foxglove/foxglove_ws/` | Foxglove 桥接 colcon 工作区 | 部分（排除 `build/`、`log/`、`install/`） |
+| `net/` | 103 出网 / NAT 配置记录 | ✅ |
+| `script/` | 零散调试脚本（UDP 状态接收、Web 控制、RTSP 转换） | ✅ |
+| `realsense_test/` | RealSense 相机测试脚本与录制数据 | 部分（`test.bag` 402 MB 不入库） |
+
+## 三、功能模块说明
+
+| 模块 | 入口 | 运行方式 | 快速验证 |
+|---|---|---|---|
+| YOLO 视频检测推流 | `yolo8/deploy/start.sh` | 手工 / systemd `lite3-yolo-publish` | `./deploy/lite3-publish-ctl.sh status` |
+| ROS2 图像话题（Foxglove） | `YOLO8_PUBLISH_MODE=dual` | 随 yolo 自动拉起 rosbridge | `ws://<host>:9090` |
+| 机器狗监控面板 | `lite3_robot_monitor/deploy/install.sh` | systemd `lite3-monitor` | `curl -sI http://127.0.0.1:8000/` |
+| ROS2→监控 桥接 | `backend/ros_bridge_node.py` | systemd `lite3-ros-bridge` | `systemctl status lite3-ros-bridge` |
+| SCAN-Planner 规划 | `scan_planner/scripts/run_sim.sh` | 手工（ROS1 隔离环境） | 见 `note/03` |
+| Foxglove 可视化 | `foxglove_ws/install/setup.sh` | 随 rosbridge | Foxglove Studio 连 9090 |
+
+## 四、前置依赖与环境要求
+
+```bash
+# 1) 系统包（ROS1 侧，SCAN-Planner 需要）
+sudo apt-get update
+sudo apt-get install -y ros-noetic-desktop-full python3-catkin-tools \
+  libeigen3-dev libpcl-dev libopencv-dev libarmadillo-dev
+
+# 2) ros1_bridge（ROS1↔ROS2 互通）
+sudo apt-get install -y ros-foxy-ros1-bridge
+
+# 3) Python 依赖（YOLO 与监控面板）
+python3 -m pip install -U pip                       # 建议加 -i 内网/清华源
+python3 -m pip install ultralytics tensorrt pycuda
+cd /home/test/lite3_robot_monitor && python3 -m pip install -r requirements.txt
+
+# 4) GStreamer 硬编解码（Jetson 镜像自带，缺失时补）
+sudo apt-get install -y gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+```
+
+三条硬约束（103 实测）：
+
+1. **103 直连 GitHub 不通**（TCP 443 超时）。拉源码走代理
+   `export https_proxy=http://<PROXY_HOST>:7897 http_proxy=http://<PROXY_HOST>:7897`，
+   或用 `https://gh-proxy.com/https://github.com/...` 镜像，最后一招是本机下载后 `scp`。
+2. **apt 源不要用清华 `ubuntu-ports` 镜像**（实测 403），用 `ports.ubuntu.com`。
+3. **Xavier NX 严禁并发加载两个 TensorRT 引擎**（每个 CUDA 上下文约 4.2 GB，8 GB 共享内存会打爆）。
+   验证推理必须与已运行的推流进程**串行**。
+
+## 五、标准复现流程（按序执行）
+
+```bash
+# 阶段 0：环境对齐
+cat /etc/os-release && ls /opt/ros && python3 --version      # 对照第一节基线
+
+# 阶段 1：网络与出网（否则后续拉包全卡死）
+# 见 note/05-网络与出网配置.md
+
+# 阶段 2：机器狗监控面板（独立、无依赖，建议先做）
+cd /home/test/lite3_robot_monitor
+bash deploy/pack.sh                                           # 生成 lite3-monitor-deploy.tar.gz
+sudo bash deploy/install.sh /home/test/lite3_robot_monitor    # 装 systemd 并启动
+systemctl status lite3-monitor                                # 期望 active
+
+# 阶段 3：YOLO 视频检测与推流
+cd /home/test/yolo8/model && bash export_engine.sh            # 导出 ARM 版 engine（约 1~2 min）
+cd /home/test/yolo8/deploy && ./start.sh yolo                 # 手工起；冷启动约 35 s
+./lite3-publish-ctl.sh status                                 # 期望 running 且 rtmp_err=none
+sudo ./enable-resident.sh                                     # 需要开机自启时再执行
+
+# 阶段 4：SCAN-Planner（耗时最长，编译约 14 min）
+source /home/test/scan_planner/scripts/env.sh                 # ROS1 环境隔离（每次新终端都要）
+bash /home/test/scan_planner/scripts/build.sh                 # catkin_make -j2
+bash /home/test/scan_planner/scripts/smoke.sh                 # 仿真冒烟
+source /home/test/scan_planner/scripts/env_restore.sh         # 用完复原环境
+
+# 阶段 5：Foxglove 可视化（可选）
+sed -i 's/^YOLO8_PUBLISH_MODE=.*/YOLO8_PUBLISH_MODE=dual/' /home/test/yolo8/deploy/yolo-publish.env
+/home/test/yolo8/deploy/lite3-publish-ctl.sh restart all      # rosbridge 随之拉起
+```
+
+## 六、端口与路径速查
+
+| 端口 / 路径 | 用途 | 占用方 |
+|---|---|---|
+| UDP 43897 | 机器狗状态包 | `transfer_ros2`（**独占**；monitor 用 sniff 旁路抓包，不 bind） |
+| TCP 8000 / 8002 | 监控面板 HTTP | `lite3-monitor` / `lite3-monitor2` |
+| UDP 43900 / 43902 | ROS2→监控 桥接 | `lite3-ros-bridge` / `...2` |
+| TCP 9090 | rosbridge WebSocket | `lite3-yolo-rosbridge`（Foxglove 连接） |
+| TCP 8554 | 上游 RTSP | 120 主机 MediaMTX |
+| TCP 1936 | RTMP 推流 | SRS `<SRS_HOST>` |
+| `/home/test/yolo8/deploy/yolo-publish.env` | YOLO 唯一配置文件 | — |
+| `/home/test/yolo8/logs/` | 推流日志 | — |
+| `/etc/systemd/system/lite3-*.service` | 已安装服务单元 | — |
+
+## 七、note 目录文档索引
+
+| 文档 | 适用 | 何时看 |
+|---|---|---|
+| [00-环境基线.md](note/00-环境基线.md) | 新主机初始化 | 复现第一步 |
+| [01-yolo视频检测与推流.md](note/01-yolo视频检测与推流.md) | YOLO 检测 + RTMP/ROS2 发布 | 部署或排查推流 |
+| [02-机器狗监控面板.md](note/02-机器狗监控面板.md) | Web 监控面板 + UDP 抓包 | 部署或面板打不开 |
+| [03-SCAN-Planner规划器.md](note/03-SCAN-Planner规划器.md) | 路径规划（ROS1） | 编译、仿真、真机接入 |
+| [04-Foxglove可视化与rosbridge.md](note/04-Foxglove可视化与rosbridge.md) | 远程可视化 | 看图 / 连不上话题 |
+| [05-网络与出网配置.md](note/05-网络与出网配置.md) | 103 出网、NAT、代理、apt 源 | 拉不到包 / 断网 |
+| [06-零散测试脚本.md](note/06-零散测试脚本.md) | RealSense、UDP 调试、RTSP 转换 | 硬件自检 |
+
+深度资料（原始记录，未整理进 note）：
+`yolo8/note/{部署笔记.md, 双通路发布-踩坑记录.md}`、`scan_planner/note/01~05*.md`。

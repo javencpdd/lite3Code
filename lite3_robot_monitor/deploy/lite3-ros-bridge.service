@@ -1,0 +1,56 @@
+# Lite3 ROS2 -> Monitor 桥接节点 systemd 单元
+#
+# 作用：把 ros_bridge_node.py 作为常驻服务运行在 103 的 ROS2 环境里，
+#       持续订阅 /leg_odom2 /imu/data /joint_states，转发 JSON 到本地 127.0.0.1:43900。
+#       这样中控后端（ros 数据源）无需手动起桥接，开机自愈。
+#
+# 本文件与 lite3-monitor.service 共用 install.sh 的占位符约定：
+#   __DIR__ / __USER__ / __GROUP__ / __HOME__ 由 install.sh 自动替换，无需手改。
+# （注意：本服务用系统 python3 + 已 source 的 ROS 环境，不使用 monitor 的 __VENV_PY__。）
+#
+# 安装（install.sh 会自动处理；也可手动）：
+#   sudo cp lite3-ros-bridge.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now lite3-ros-bridge
+# 查看日志：
+#   journalctl -u lite3-ros-bridge -f
+#
+# ⚠️ 需要按 103 实际情况调整的占位项：
+#   - --imu/--odom/--joints  : 若 transfer_ros2 发布的 topic 名不同，改这里（或用 /api/source 切回 sniff）
+#   - ROS 发行版目录          : ExecStart 里用 `ls /opt/ros/*/setup.bash` 自动探测；若装在别处请改路径
+#   - 若 103 上 transfer_ros2 本身也是 systemd 服务，建议在其后启动（见下方 After/Wants 注释）
+
+[Unit]
+Description=Lite3 ROS2 -> Monitor bridge (topics -> local UDP)
+Documentation=file:__DIR__/docs/ros_bridge.md
+# 让桥接在 transfer_ros2 之后再启动（请把 transfer_ros2.service 换成 103 上真实的服务名）
+# After=network-online.target transfer_ros2.service
+# Wants=transfer_ros2.service
+After=network-online.target __MONITOR_SVC__.service
+Wants=network-online.target
+
+# 桥接只为本实例的 monitor 服务，两者的生命周期绑定：
+#   BindsTo —— monitor 停止/异常消失时，桥接一并停止；
+#   PartOf  —— monitor 重启时，桥接也跟着重启（否则 ROS 数据断掉、
+#              monitor 会一直停在 sniff 兜底上，直到手动重启桥接）。
+# 这样可避免"主服务已停、桥接还在订阅话题并往无人接收的端口发包"。
+BindsTo=__MONITOR_SVC__.service
+PartOf=__MONITOR_SVC__.service
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__DIR__/backend
+# 必须 source ROS2 环境；这里自动探测 /opt/ros 下的发行版 setup.bash。
+# 若使用了 colcon 工作区，在下面补一行 source <ws>/install/setup.bash 即可。
+Environment=HOME=__HOME__
+ExecStart=/bin/bash -c 'ROS_SETUP=$(ls /opt/ros/*/setup.bash 2>/dev/null | head -n1); [ -n "$ROS_SETUP" ] && source "$ROS_SETUP"; [ -f __DIR__/install/setup.bash ] && source __DIR__/install/setup.bash; exec python3 __DIR__/backend/ros_bridge_node.py --imu /imu/data --odom /leg_odom2 --joints /joint_states --host 127.0.0.1 --port __ROS_PORT__ --name __ROS_NODE__'
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lite3-ros-bridge
+
+[Install]
+WantedBy=multi-user.target

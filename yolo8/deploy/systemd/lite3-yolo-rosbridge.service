@@ -1,0 +1,30 @@
+[Unit]
+Description=rosbridge websocket server (for Foxglove)
+Documentation=file:///home/test/yolo8/deploy/README.md
+
+# 依赖：nothing beyond network。
+# 用途：把 ROS2 话题暴露成 ws://<host>:<ROSBRIDGE_PORT>，Foxglove Studio 直连即可看图。
+# 只有 yolo-publish.env 里 YOLO8_PUBLISH_MODE=dual|ros2 时才需要它，默认不启用。
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ysc
+Environment=HOME=/home/ysc
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/home/test/yolo8/deploy/yolo-publish.env
+WorkingDirectory=/home/test/yolo8
+
+ExecStart=/home/test/yolo8/deploy/scripts/run-rosbridge.sh
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+
+StandardOutput=append:/home/test/yolo8/logs/rosbridge.log
+StandardError=append:/home/test/yolo8/logs/rosbridge.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,50 @@
+# 120
+ysc@ysc:~$ 
+sudo iptables -t nat -A POSTROUTING \
+-s 192.168.1.0/24 \
+-o wlan0 \
+-j MASQUERADE
+
+# 检查：
+ysc@ysc:~$ 
+sudo iptables -t nat -L POSTROUTING -n -v
+
+Chain POSTROUTING (policy ACCEPT 122 packets, 7863 bytes)
+ pkts bytes target     prot opt in     out     source               destination
+ 5563  418K MASQUERADE  all  --  *      *       192.168.2.0/24      !192.168.2.0/24
+    0     0 MASQUERADE  all  --  *      eth1    192.168.2.0/24       0.0.0.0/0
+    0     0 MASQUERADE  all  --  *      wlan0   192.168.137.0/24     0.0.0.0/0
+   12   809 MASQUERADE  all  --  *      wlan0   192.168.1.0/24       0.0.0.0/0
+
+
+
+<!-- 
+
+添加：
+sudo iptables -t nat -A POSTROUTING \
+  -s 192.168.1.0/24 \
+  -o wlan0 \
+  -j MASQUERADE
+
+然后加入转发：
+sudo iptables -A FORWARD \
+  -i eth1 \
+  -o wlan0 \
+  -s 192.168.1.0/24 \
+  -j ACCEPT
+
+返回方向：
+sudo iptables -A FORWARD \
+  -i wlan0 \
+  -o eth1 \
+  -d 192.168.1.0/24 \
+  -m conntrack --ctstate RELATED,ESTABLISHED \
+  -j ACCEPT
+
+然后检查：
+sudo iptables -t nat -L POSTROUTING -n -v
+
+应该出现类似：
+MASQUERADE  all  --  *  wlan0  192.168.1.0/24  0.0.0.0/0 
+
+-->

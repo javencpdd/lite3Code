@@ -1,0 +1,57 @@
+[Unit]
+Description=Lite3 Robot Monitor (UDP 43897 旁路抓包 → WebSocket 监控面板)
+Documentation=file:__DIR__/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+
+# 旁路抓包（AF_PACKET）需要 CAP_NET_RAW。
+# 用 AmbientCapabilities 而不是直接跑 root，遵循最小权限原则。
+# 若你的 systemd / 内核版本不支持该写法，把上面两行改成 User=root 即可。
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+
+WorkingDirectory=__DIR__/backend
+
+# ---- 运行参数 ----
+Environment=PYTHONUNBUFFERED=1
+# 依赖若以 pip --user 装在 ~/.local，必须让 site 模块能找到它
+Environment=HOME=__HOME__
+Environment=PYTHONPATH=__DIR__/backend
+# sniff = 旁路抓包，不占用 UDP 43897，不影响 transfer_ros2 收包
+Environment=LITE3_UDP_MODE=sniff
+Environment=LITE3_UDP_PORT=43897
+# 指定只抓业务网网卡可显著降低无关流量，例如 eth0；留空表示所有网卡
+Environment=LITE3_UDP_IFACE=
+Environment=LITE3_HTTP_HOST=0.0.0.0
+Environment=LITE3_HTTP_PORT=__HTTP_PORT__
+Environment=LITE3_ROS_BRIDGE_PORT=__ROS_PORT__
+Environment=LITE3_PUSH_HZ=10
+Environment=LITE3_LINK_TIMEOUT=3.0
+Environment=LITE3_LOG_LEVEL=INFO
+
+# ---- 速度方向取反（仅当实机方向与文档相反时才开）----
+# 文档 1.2.12 定义：x 正值=前进、y 正值=向右、yaw 正值=向右转。
+# 若实机表现相反（固件与文档不一致，或对"右"的参考系理解不同），
+# 把对应轴改成 true 即可，无需改代码。true/1/yes/on 都可识别。
+Environment=LITE3_CTRL_INVERT_VEL_X=false
+Environment=LITE3_CTRL_INVERT_VEL_Y=false
+Environment=LITE3_CTRL_INVERT_VEL_YAW=false
+
+# __VENV_PY__ 由 install.sh 替换为实际解释器（虚拟环境或系统 Python）
+ExecStart=__VENV_PY__ -m uvicorn main:app --host 0.0.0.0 --port __HTTP_PORT__
+
+# 监控属于常驻服务，异常应自愈（区别于巡检任务，巡检禁止自动重启）
+Restart=on-failure
+RestartSec=3
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lite3-monitor
+
+[Install]
+WantedBy=multi-user.target

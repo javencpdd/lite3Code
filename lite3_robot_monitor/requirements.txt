@@ -1,0 +1,7 @@
+# Lite3 Robot Monitor 依赖清单
+# 目标平台：103 感知导航主机（Ubuntu 20.04 / Python 3.8），下限按 3.8 选取
+# 后端请进入 backend 目录安装：pip install -r backend/requirements.txt
+fastapi>=0.110
+uvicorn>=0.27
+websockets>=12.0
+pydantic>=2.6

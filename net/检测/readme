@@ -1,0 +1,15 @@
+timeout 8 curl -sI https://pypi.org/simple/ >/dev/null && echo "PyPI 可达" || echo "PyPI 不可达"
+
+timeout 8 apt-get update -qq 2>/dev/null && echo "apt 可达" || echo "apt 不可达"
+
+timeout 60 sudo apt-get -o Acquire::ForceIPv4=true update -qq \
+  && echo "apt 可达" \
+  || echo "apt 更新失败或超时"
+
+timeout 10 curl -fsSI \
+https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/dists/focal/InRelease \
+>/dev/null \
+&& echo "Ubuntu apt 源可达" \
+|| echo "Ubuntu apt 源不可达"
+
+python3 -m pip --version 2>&1 | head -1

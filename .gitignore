@@ -1,0 +1,98 @@
+# ============================================================
+# /home/test 版本管理过滤规则
+# 原则：忽略一切「运行时产生 / 可重新生成 / 含本机环境」的东西，
+#       保留源码、脚本、文档与必需配置。
+# ============================================================
+
+# ---------- Python 缓存与虚拟环境 ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+
+# ---------- 前端依赖与构建产物 ----------
+node_modules/
+frontend/dist/
+dist/
+*.map
+
+# ---------- 日志与运行输出 ----------
+logs/
+*.log
+*.out
+*.err
+nohup.out
+
+# ---------- 编译产物（catkin / colcon / cmake）----------
+build/
+devel/
+install/
+log/
+catkin_generated/
+.catkin_workspace
+CMakeCache.txt
+CMakeFiles/
+*.cmake
+*.o
+*.so
+*.a
+*.dylib
+COLCON_IGNORE
+.built_by
+
+# ---------- 模型权重与中间格式（用 export_engine.sh 重新生成）----------
+*.engine
+*.plan
+*.trt
+*.onnx
+*.pt
+*.pth
+*.weights
+
+# ---------- 数据集与大体积二进制 ----------
+*.bag
+*.pcd
+*.ply
+*.mp4
+*.mkv
+*.avi
+
+# ---------- 本地配置与密钥 ----------
+.env
+*.env.local
+*.env.bak*
+*.pem
+*.key
+*.p12
+*.ovpn
+id_rsa*
+id_ed25519*
+credentials
+.netrc
+
+# 例外：yolo-publish.env 是推流服务的唯一配置文件，复现必需，必须入库
+!yolo8/deploy/yolo-publish.env
+
+# ---------- 备份与编辑器临时文件 ----------
+*.bak
+*.bak-*
+*~
+*.swp
+*.tmp
+.DS_Store
+core
+core.*
+
+# ---------- 第三方代码（许可与体积原因，不纳入本仓库）----------
+# SCAN-Planner 上游源码：EGO-Planner 系（GPL）+ Unitree 网格资产，
+#   部署时按 note/03-SCAN-Planner规划器.md 从上游 clone，不在此分发
+scan_planner/src/
+# Ultralytics YOLOv8（AGPL-3.0）及其 SDK：改用 pip 依赖，避免许可传染
+yolo8/src/ultralytics/
+yolo8/src/hub_sdk/
+# monitor/ 是 lite3_robot_monitor/ 的旧副本（当前线上运行目录），源码以后者为准
+monitor/

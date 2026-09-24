@@ -1,0 +1,13 @@
+# Lite3 Robot Monitor 后端依赖
+#
+# 目标平台：103 感知导航主机（Jetson Xavier NX，Ubuntu 20.04，Python 3.8）
+# 版本下限按 Python 3.8 选取，下列包均提供 3.8 的 wheel。
+#
+# 说明：aarch64 上 `uvicorn[standard]` 依赖的 httptools / uvloop 常常没有预编译 wheel，
+#       现场编译既慢又容易失败，所以这里只依赖纯 Python 版 uvicorn。
+#       若 103 上能顺利编译，可手动加装以换取性能：
+#         pip install "uvicorn[standard]"
+fastapi>=0.110
+uvicorn>=0.27
+websockets>=12.0
+pydantic>=2.6

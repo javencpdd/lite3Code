@@ -1,0 +1,37 @@
+[Unit]
+Description=Lite3 YOLO publisher (RTMP / dual path)
+Documentation=file:///home/test/yolo8/deploy/README.md
+
+# 依赖：
+#   - 网络（从 120 拉 RTSP：rtsp://192.168.1.120:8554/test；向 RTMP 服务器推流）
+#   - /home/test/yolo8 可读可执行，model/ 下有 yolov8n_arm.engine（ARM 版，x86 engine 不可用）
+# 注意：不依赖 lite3-yolo-rosbridge.service —— 只有 dual 模式才需要它，
+#       单 RTMP 模式下 rosbridge 不必启动。
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ysc
+Environment=HOME=/home/ysc
+Environment=PYTHONUNBUFFERED=1
+# 配置集中在一处（模式/流名/话题名/端口），改动后用 systemctl restart 生效
+EnvironmentFile=/home/test/yolo8/deploy/yolo-publish.env
+WorkingDirectory=/home/test/yolo8/src
+
+# 真正逻辑在 scripts/run-yolo-publish.sh，与手工拉起方式共用同一份
+ExecStart=/home/test/yolo8/deploy/scripts/run-yolo-publish.sh
+
+# 冷启动约 35s（RTSP 首帧 + TensorRT engine 加载），RestartSec 别设太小
+Restart=always
+RestartSec=5
+# 退出时要释放 RTMP 连接与 RTSP 拉流线程，20s 足够；再短会出现僵尸推流
+TimeoutStopSec=20
+KillMode=control-group
+
+# 日志统一落在工程 logs/ 下（不要用 /tmp，会被清理）
+StandardOutput=append:/home/test/yolo8/logs/yolo-publish.log
+StandardError=append:/home/test/yolo8/logs/yolo-publish.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,73 @@
+# Lite3 Robot Monitor —— 内嵌 ROS 订阅版（ros_direct）
+#
+# 与 lite3-monitor.service 的唯一区别：ExecStart 会先 source ROS2 环境，
+# 让后端进程自己 import rclpy 订阅 topic，从而**不再需要 lite3-ros-bridge 进程**。
+#
+# 适用：确认只在 103 上运行、不需要 Windows 开发机直接启动后端。
+# 切换方式（二选一）：
+#   1) 安装时：LITE3_ROS_IMPL=direct sudo -E bash deploy/install.sh <目录> [TAG]
+#   2) 已装好：sudo cp 本文件 /etc/systemd/system/lite3-monitor.service 后 daemon-reload + restart
+#              （更规范的做法是 sudo systemctl edit lite3-monitor 写 drop-in，避免被 install.sh 覆盖）
+#
+# 风险：ROS 图异常（DDS 抖动 / 节点名冲突）与 Web 服务同进程。
+#       缓解：保持 LITE3_DATA_SOURCE=auto，ROS 断流会自动回退 sniff 并自愈恢复。
+#
+# 本文件与 lite3-monitor.service 共用 install.sh 的占位符约定：
+#   __DIR__ / __USER__ / __GROUP__ / __HOME__ / __VENV_PY__ / __HTTP_PORT__ / __ROS_PORT__
+#   __VENV_SITE__ 为后端虚拟环境的 site-packages，用于保证 venv 依赖优先于 ROS 自带包。
+
+[Unit]
+Description=Lite3 Robot Monitor (内嵌 ROS2 订阅 → WebSocket 监控面板)
+Documentation=file:__DIR__/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+
+# 旁路抓包（AF_PACKET）需要 CAP_NET_RAW（ros_direct 失效时的兜底依赖它）。
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+
+WorkingDirectory=__DIR__/backend
+
+# ---- 运行参数 ----
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=__HOME__
+Environment=PYTHONPATH=__DIR__/backend
+Environment=LITE3_UDP_MODE=sniff
+Environment=LITE3_UDP_PORT=43897
+Environment=LITE3_UDP_IFACE=
+Environment=LITE3_HTTP_HOST=0.0.0.0
+Environment=LITE3_HTTP_PORT=__HTTP_PORT__
+Environment=LITE3_LOG_LEVEL=INFO
+
+# ---- 数据源：内嵌订阅为主，sniff 兜底 ----
+Environment=LITE3_DATA_SOURCE=auto
+Environment=LITE3_ROS_IMPL=direct
+# 多实例并行时必须各不相同（或改用 ROS_DOMAIN_ID 隔离）
+Environment=LITE3_ROS_NODE_NAME=lite3_monitor_ros
+Environment=LITE3_ROS_TOPIC_IMU=/imu/data
+Environment=LITE3_ROS_TOPIC_ODOM=/leg_odom2
+Environment=LITE3_ROS_TOPIC_JOINTS=/joint_states
+
+# ---- 速度方向取反（仅当实机方向与文档相反时才开）----
+Environment=LITE3_CTRL_INVERT_VEL_X=false
+Environment=LITE3_CTRL_INVERT_VEL_Y=false
+Environment=LITE3_CTRL_INVERT_VEL_YAW=false
+
+# 关键：先 source ROS，再把 venv 的 site-packages 提到 PYTHONPATH 最前。
+# 否则 /opt/ros/<distro> 下自带的 numpy / PyYAML 等会遮住 venv 里安装的版本。
+ExecStart=/bin/bash -c 'ROS_SETUP=$(ls /opt/ros/*/setup.bash 2>/dev/null | head -n1); if [ -n "$ROS_SETUP" ]; then source "$ROS_SETUP"; if [ -n "__VENV_SITE__" ]; then export PYTHONPATH="__VENV_SITE__:$PYTHONPATH"; fi; else echo "[warn] 未找到 ROS setup.bash，ros_direct 将不可用" >&2; fi; exec __VENV_PY__ -m uvicorn main:app --host 0.0.0.0 --port __HTTP_PORT__'
+
+Restart=on-failure
+RestartSec=3
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lite3-monitor
+
+[Install]
+WantedBy=multi-user.target
