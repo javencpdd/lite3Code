@@ -37,4 +37,13 @@ Lite3 四足机器人**感知导航主机**（Jetson Xavier NX · Ubuntu 20.04 �
 - SCAN-Planner 上游源码（EGO-Planner 系）与 Unitree 模型资产 —— 见 [note/03](note/03-SCAN-Planner规划器.md)
 - Ultralytics YOLOv8（AGPL-3.0）—— 以 pip 依赖方式引入，见 `yolo8` 说明
 
-本仓库未附加开源许可文件，默认保留所有权利。
+## 许可
+
+本仓库采用 **[PolyForm Noncommercial License 1.0.0](LICENSE)**：
+
+- ✅ 允许为**非商业目的**使用、修改（二次开发）与分发本软件及其衍生作品
+- ❌ 禁止任何**商业用途**
+- 📌 分发时须一并保留许可条款与开头的版权声明行
+
+> 说明：这不是 OSI 认证的开源许可（开源许可均允许商用），它是专为"可二开、禁商用"场景设计的软件许可。
+> 商业授权请联系仓库作者。
